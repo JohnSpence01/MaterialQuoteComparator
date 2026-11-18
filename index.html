@@ -1,0 +1,1896 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  Zap,
+  Key,
+  Eye,
+  EyeOff,
+  Upload,
+  FileText,
+  CheckCircle2,
+  AlertTriangle,
+  Trophy,
+  Scissors,
+  Download,
+  Printer,
+  Sparkles,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
+  Copy,
+  Check,
+  Loader2,
+  ArrowRight,
+  ArrowLeft,
+  RotateCcw
+} from 'lucide-react';
+
+// ============================================================================
+// SAMPLE DATA (WORLD ELECTRIC SUPPLY VS CITY ELECTRIC SUPPLY)
+// ============================================================================
+const SAMPLE_QUOTE_A = `WORLD ELECTRIC SUPPLY - JACKSONVILLE BRANCH
+Quote #: Q-884120 | Terms: Net 30 | Freight: Prepaid & Allowed ($1,500+ min)
+Lead Time: In Stock - Next Day Delivery
+
+LINE | QTY | UOM | DESCRIPTION | UNIT PRICE | EXTENDED
+1 | 250 | STK | 1" EMT STEEL CONDUIT 10FT STICK (2,500 FT) | $14.80 | $3,700.00
+2 | 120 | STK | 3/4" EMT STEEL CONDUIT 10FT STICK (1,200 FT) | $9.45 | $1,134.00
+3 | 10 | ROL | 12/2 SOLID MC CABLE ALUM ARMOR 250FT COIL | $184.50 | $1,845.00
+4 | 15 | STK | 1-5/8" X 1-5/8" 12GA SLOTTED DEEP STRUT 10FT | $31.20 | $468.00
+5 | 4 | EA | HUBBELL PFBRG2 RECESSED FLOOR BOX KIT | $412.00 | $1,648.00
+6 | 300 | EA | 1" STEEL EMT SET-SCREW CONNECTOR INSULATED | $0.68 | $204.00
+7 | 5 | BOX | 1/2" SINGLE MC CABLE SNAP-IN CONNECTOR (50/BX) | $24.00 | $120.00
+8 | 4 | BAG | RED WINGED WIRE NUT CONNECTOR (500/BAG) | $34.50 | $138.00
+SUBTOTAL: $9,257.00 | TAX (7.5%): $694.28 | TOTAL: $9,951.28`;
+
+const SAMPLE_QUOTE_B = `CITY ELECTRIC SUPPLY (CES) - ORANGE PARK
+Quote #: CES-44910-B | Terms: Net 30 | Freight: $85.00 Flat Delivery Fee
+Lead Time: 2-3 Business Days (Floor boxes backordered 10 days)
+
+ITEM | QTY | UOM | MATERIAL DESCRIPTION | UNIT | TOTAL
+10 | 2500 | FT | EMT CONDUIT 1 INCH THINWALL (SOLD PER FT) | $1.39 | $3,475.00
+20 | 1200 | FT | EMT CONDUIT 3/4 INCH THINWALL (SOLD PER FT) | $0.98 | $1,176.00
+30 | 2500 | FT | 12/2 MC CABLE SOLID THHN 250FT ROLLS (10 ROLLS) | $0.71 | $1,775.00
+40 | 150 | FT | UNISTRUT P1000T 1-5/8 DEEP SLOTTED CHANNEL | $3.25 | $487.50
+50 | 0 | EA | HUBBELL PFBRG2 FLOOR BOX - NO BID / EXCLUDED | $0.00 | $0.00
+60 | 300 | EA | 1 INCH EMT SET SCREW CONN INSUL STEEL | $0.62 | $186.00
+70 | 250 | EA | 1/2 INCH MC CONNECTOR SNAP-IN | $0.54 | $135.00
+80 | 2000 | EA | WIRE CONNECTOR RED WINGED | $0.065 | $130.00
+MERCHANDISE: $7,364.50 | FREIGHT: $85.00 | TAX (7.5%): $552.34 | GRAND TOTAL: $8,001.84`;
+
+const SAMPLE_ANALYSIS_RESULT = {
+  overallWinner: 'Quote A',
+  confidenceScore: 98,
+  executiveSummary:
+    'Quote A (World Electric Supply) is the stronger overall single-vendor award despite a higher headline total ($9,951.28 vs. $8,001.84), because Quote B omitted $1,648.00 worth of Hubbell PFBRG2 floor boxes and added an $85.00 freight fee. On an apples-to-apples normalized scope, Quote A is only $111.50 higher while guaranteeing next-day stock availability on critical rough-in floor boxes. However, splitting the PO across both suppliers saves $565.50 off Quote A’s baseline.',
+  keyReasons: [
+    'Complete Scope Coverage: Quote A includes all 4 Hubbell PFBRG2 recessed floor boxes ($1,648.00) in stock for next-day delivery; Quote B marked them NO BID / Excluded.',
+    'Zero Freight Charges: Quote A waives delivery fees (Prepaid & Allowed over $1,500), saving $85.00 compared to Quote B’s flat delivery charge.',
+    'Unit-of-Measure Normalization: Quote B quoted conduit, MC cable, strut, connectors, and wire nuts per-foot / per-piece while Quote A quoted by stick, roll, box, and bag. Once normalized to identical base quantities, Quote B beats Quote A on 4 of 8 lines (1" EMT, 12/2 MC, 1" connectors, and red wire nuts).',
+    'Schedule Risk Mitigation: Rough-in floor boxes are typically early-phase critical path items; avoiding Quote B’s 10-day backorder prevents slab/rough-in delays.'
+  ],
+  riskFlags: [
+    'Quote B excluded Line 5 (4x Hubbell PFBRG2 Floor Boxes = $1,648.00 value) — awarding solely to Quote B without sourcing floor boxes separately will stall rough-in.',
+    'Quote B adds an $85.00 freight charge whereas Quote A includes free next-day local delivery.'
+  ],
+  quoteASummary: {
+    supplierName: 'World Electric Supply',
+    statedSubtotal: 9257.0,
+    freightAndFees: 0.0,
+    tax: 694.28,
+    statedTotal: 9951.28,
+    normalizedApplesToApplesSubtotal: 9257.0,
+    paymentTerms: 'Net 30',
+    leadTime: 'In Stock - Next Day Delivery'
+  },
+  quoteBSummary: {
+    supplierName: 'City Electric Supply (CES)',
+    statedSubtotal: 7364.5,
+    freightAndFees: 85.0,
+    tax: 552.34,
+    statedTotal: 8001.84,
+    normalizedApplesToApplesSubtotal: 9145.5,
+    paymentTerms: 'Net 30',
+    leadTime: '2-3 Days (Floor boxes NO BID / 10-day backorder)'
+  },
+  splitAwardOptimization: {
+    enabled: true,
+    splitSubtotal: 8691.5,
+    savingsVsQuoteA: 565.5,
+    savingsVsQuoteBNormalized: 454.0,
+    recommendationNote:
+      'Issue PO #1 to World Electric Supply ($3,370.00) for the 4x Hubbell PFBRG2 floor boxes, 3/4" EMT, deep strut, and 1/2" MC connectors (exceeding their $1,500 free-freight threshold), and issue PO #2 to City Electric Supply ($5,566.00 + $85 freight = $5,651.00, or ask CES to waive freight on a $5.5k order) for 1" EMT, 12/2 MC cable, 1" connectors, and red wire nuts.'
+  },
+  lineItems: [
+    {
+      id: 'L1',
+      category: 'Conduit',
+      standardDescription: '1" EMT Steel Conduit (2,500 ft total)',
+      requiredQty: 2500,
+      baseUnit: 'FT',
+      quoteA: {
+        rawDesc: '1" EMT STEEL CONDUIT 10FT STICK (2,500 FT)',
+        rawQty: 250,
+        rawUom: 'STK (10ft)',
+        rawUnitPrice: 14.8,
+        normalizedUnitPrice: 1.48,
+        extendedPrice: 3700.0,
+        status: 'MATCHED'
+      },
+      quoteB: {
+        rawDesc: 'EMT CONDUIT 1 INCH THINWALL (SOLD PER FT)',
+        rawQty: 2500,
+        rawUom: 'FT',
+        rawUnitPrice: 1.39,
+        normalizedUnitPrice: 1.39,
+        extendedPrice: 3475.0,
+        status: 'MATCHED'
+      },
+      winner: 'Quote B',
+      savingsAmount: 225.0,
+      notes: 'Normalized 10ft sticks ($14.80/10 = $1.48/ft) vs per-foot ($1.39/ft). Quote B saves $0.09/ft.'
+    },
+    {
+      id: 'L2',
+      category: 'Conduit',
+      standardDescription: '3/4" EMT Steel Conduit (1,200 ft total)',
+      requiredQty: 1200,
+      baseUnit: 'FT',
+      quoteA: {
+        rawDesc: '3/4" EMT STEEL CONDUIT 10FT STICK (1,200 FT)',
+        rawQty: 120,
+        rawUom: 'STK (10ft)',
+        rawUnitPrice: 9.45,
+        normalizedUnitPrice: 0.945,
+        extendedPrice: 1134.0,
+        status: 'MATCHED'
+      },
+      quoteB: {
+        rawDesc: 'EMT CONDUIT 3/4 INCH THINWALL (SOLD PER FT)',
+        rawQty: 1200,
+        rawUom: 'FT',
+        rawUnitPrice: 0.98,
+        normalizedUnitPrice: 0.98,
+        extendedPrice: 1176.0,
+        status: 'MATCHED'
+      },
+      winner: 'Quote A',
+      savingsAmount: 42.0,
+      notes: 'Quote A works out to $0.945/ft vs Quote B at $0.98/ft.'
+    },
+    {
+      id: 'L3',
+      category: 'Wire & Cable',
+      standardDescription: '12/2 Solid Aluminum Armor MC Cable (2,500 ft)',
+      requiredQty: 2500,
+      baseUnit: 'FT',
+      quoteA: {
+        rawDesc: '12/2 SOLID MC CABLE ALUM ARMOR 250FT COIL',
+        rawQty: 10,
+        rawUom: 'ROL (250ft)',
+        rawUnitPrice: 184.5,
+        normalizedUnitPrice: 0.738,
+        extendedPrice: 1845.0,
+        status: 'MATCHED'
+      },
+      quoteB: {
+        rawDesc: '12/2 MC CABLE SOLID THHN 250FT ROLLS',
+        rawQty: 2500,
+        rawUom: 'FT',
+        rawUnitPrice: 0.71,
+        normalizedUnitPrice: 0.71,
+        extendedPrice: 1775.0,
+        status: 'MATCHED'
+      },
+      winner: 'Quote B',
+      savingsAmount: 70.0,
+      notes: 'Quote A is $184.50/250ft coil ($0.738/ft) vs Quote B at $0.71/ft ($177.50/coil).'
+    },
+    {
+      id: 'L4',
+      category: 'Support & Strut',
+      standardDescription: '1-5/8" x 1-5/8" 12Ga Slotted Deep Strut (150 ft)',
+      requiredQty: 150,
+      baseUnit: 'FT',
+      quoteA: {
+        rawDesc: '1-5/8" X 1-5/8" 12GA SLOTTED DEEP STRUT 10FT',
+        rawQty: 15,
+        rawUom: 'STK (10ft)',
+        rawUnitPrice: 31.2,
+        normalizedUnitPrice: 3.12,
+        extendedPrice: 468.0,
+        status: 'MATCHED'
+      },
+      quoteB: {
+        rawDesc: 'UNISTRUT P1000T 1-5/8 DEEP SLOTTED CHANNEL',
+        rawQty: 150,
+        rawUom: 'FT',
+        rawUnitPrice: 3.25,
+        normalizedUnitPrice: 3.25,
+        extendedPrice: 487.5,
+        status: 'MATCHED'
+      },
+      winner: 'Quote A',
+      savingsAmount: 19.5,
+      notes: 'Quote A is $3.12/ft vs Quote B’s $3.25/ft.'
+    },
+    {
+      id: 'L5',
+      category: 'Boxes & Enclosures',
+      standardDescription: 'Hubbell PFBRG2 Recessed Floor Box Kit',
+      requiredQty: 4,
+      baseUnit: 'EA',
+      quoteA: {
+        rawDesc: 'HUBBELL PFBRG2 RECESSED FLOOR BOX KIT',
+        rawQty: 4,
+        rawUom: 'EA',
+        rawUnitPrice: 412.0,
+        normalizedUnitPrice: 412.0,
+        extendedPrice: 1648.0,
+        status: 'MATCHED'
+      },
+      quoteB: {
+        rawDesc: 'HUBBELL PFBRG2 FLOOR BOX - NO BID / EXCLUDED',
+        rawQty: 0,
+        rawUom: 'EA',
+        rawUnitPrice: 0.0,
+        normalizedUnitPrice: 0.0,
+        extendedPrice: 0.0,
+        status: 'MISSING'
+      },
+      winner: 'Quote A',
+      savingsAmount: 0.0,
+      notes:
+        'CRITICAL: Quote B excluded/no-bid this line ($1,648.00 added to Quote B normalized total for fair comparison).'
+    },
+    {
+      id: 'L6',
+      category: 'Fittings',
+      standardDescription: '1" Steel EMT Set-Screw Insulated Connector',
+      requiredQty: 300,
+      baseUnit: 'EA',
+      quoteA: {
+        rawDesc: '1" STEEL EMT SET-SCREW CONNECTOR INSULATED',
+        rawQty: 300,
+        rawUom: 'EA',
+        rawUnitPrice: 0.68,
+        normalizedUnitPrice: 0.68,
+        extendedPrice: 204.0,
+        status: 'MATCHED'
+      },
+      quoteB: {
+        rawDesc: '1 INCH EMT SET SCREW CONN INSUL STEEL',
+        rawQty: 300,
+        rawUom: 'EA',
+        rawUnitPrice: 0.62,
+        normalizedUnitPrice: 0.62,
+        extendedPrice: 186.0,
+        status: 'MATCHED'
+      },
+      winner: 'Quote B',
+      savingsAmount: 18.0,
+      notes: 'Identical spec; Quote B saves $0.06/ea.'
+    },
+    {
+      id: 'L7',
+      category: 'Fittings',
+      standardDescription: '1/2" Single MC Cable Snap-In Connector (250 pcs)',
+      requiredQty: 250,
+      baseUnit: 'EA',
+      quoteA: {
+        rawDesc: '1/2" SINGLE MC CABLE SNAP-IN CONNECTOR (50/BX)',
+        rawQty: 5,
+        rawUom: 'BOX (50)',
+        rawUnitPrice: 24.0,
+        normalizedUnitPrice: 0.48,
+        extendedPrice: 120.0,
+        status: 'MATCHED'
+      },
+      quoteB: {
+        rawDesc: '1/2 INCH MC CONNECTOR SNAP-IN',
+        rawQty: 250,
+        rawUom: 'EA',
+        rawUnitPrice: 0.54,
+        normalizedUnitPrice: 0.54,
+        extendedPrice: 135.0,
+        status: 'MATCHED'
+      },
+      winner: 'Quote A',
+      savingsAmount: 15.0,
+      notes: '5 boxes of 50 = 250 pcs at $0.48/ea vs Quote B at $0.54/ea.'
+    },
+    {
+      id: 'L8',
+      category: 'Consumables',
+      standardDescription: 'Red Winged Wire Nut Connectors (2,000 pcs)',
+      requiredQty: 2000,
+      baseUnit: 'EA',
+      quoteA: {
+        rawDesc: 'RED WINGED WIRE NUT CONNECTOR (500/BAG)',
+        rawQty: 4,
+        rawUom: 'BAG (500)',
+        rawUnitPrice: 34.5,
+        normalizedUnitPrice: 0.069,
+        extendedPrice: 138.0,
+        status: 'MATCHED'
+      },
+      quoteB: {
+        rawDesc: 'WIRE CONNECTOR RED WINGED',
+        rawQty: 2000,
+        rawUom: 'EA',
+        rawUnitPrice: 0.065,
+        normalizedUnitPrice: 0.065,
+        extendedPrice: 130.0,
+        status: 'MATCHED'
+      },
+      winner: 'Quote B',
+      savingsAmount: 8.0,
+      notes: '4 bags of 500 = 2,000 pcs ($0.069/ea) vs Quote B at $0.065/ea.'
+    }
+  ]
+};
+
+// ============================================================================
+// FORMATTING & API HELPERS
+// ============================================================================
+const formatCurrency = (val) => {
+  if (val === null || val === undefined || isNaN(val)) return '$0.00';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD'
+  }).format(val);
+};
+
+const formatUnitCurrency = (val) => {
+  if (val === null || val === undefined || isNaN(val)) return '$0.00';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4
+  }).format(val);
+};
+
+async function fetchGeminiWithRetry(url, payload, maxRetries = 4) {
+  let attempt = 0;
+  while (attempt <= maxRetries) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        if (response.status === 429 || response.status >= 500) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData?.error?.message || `Gemini API Error (${response.status})`);
+      }
+
+      return await response.json();
+    } catch (err) {
+      if (attempt === maxRetries) throw err;
+      const delay = Math.pow(2, attempt) * 1000;
+      await new Promise((res) => setTimeout(res, delay));
+      attempt++;
+    }
+  }
+}
+
+// ============================================================================
+// QUOTE INPUT CARD SUBCOMPONENT
+// ============================================================================
+function QuoteInputCard({ side, label, quote, onChange, onFileUpload }) {
+  const fileInputRef = useRef(null);
+  const [dragActive, setDragActive] = useState(false);
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      onFileUpload(e.dataTransfer.files[0]);
+    }
+  };
+
+  const accentBorder =
+    side === 'A'
+      ? 'border-amber-500/40 focus-within:border-amber-500'
+      : 'border-sky-500/40 focus-within:border-sky-500';
+  const badgeColor =
+    side === 'A'
+      ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+      : 'bg-sky-500/15 text-sky-300 border-sky-500/30';
+
+  return (
+    <div
+      className={`bg-slate-900/90 border ${accentBorder} rounded-xl p-5 flex flex-col gap-4 shadow-lg transition-colors`}
+    >
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-wider uppercase border ${badgeColor}`}
+          >
+            {label}
+          </span>
+          <input
+            type="text"
+            value={quote.supplierName}
+            onChange={(e) => onChange({ ...quote, supplierName: e.target.value })}
+            placeholder={`Supplier ${side} Name (Optional)`}
+            className="bg-slate-950/70 border border-slate-700/80 rounded-lg px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-slate-500 w-56"
+          />
+        </div>
+
+        <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+          <button
+            type="button"
+            onClick={() => onChange({ ...quote, mode: 'file' })}
+            className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
+              quote.mode === 'file'
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Upload File
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange({ ...quote, mode: 'text' })}
+            className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
+              quote.mode === 'text'
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Paste Text
+          </button>
+        </div>
+      </div>
+
+      {quote.mode === 'file' ? (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center min-h-[180px] ${
+            dragActive
+              ? 'border-amber-400 bg-amber-500/10'
+              : 'border-slate-700 hover:border-slate-500 bg-slate-950/50'
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.csv,.txt,.png,.jpg,.jpeg,.webp"
+            className="hidden"
+            onChange={(e) => e.target.files?.[0] && onFileUpload(e.target.files[0])}
+          />
+          {quote.file ? (
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-11 h-11 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                <FileText className="w-5 h-5" />
+              </div>
+              <p className="text-sm font-semibold text-slate-100">{quote.file.name}</p>
+              <p className="text-xs text-slate-400">
+                {(quote.file.size / 1024).toFixed(1)} KB • Ready for AI extraction
+              </p>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange({ ...quote, file: null, text: '' });
+                }}
+                className="mt-1 inline-flex items-center gap-1 text-xs text-rose-400 hover:text-rose-300 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Remove file
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-slate-400">
+              <div className="w-11 h-11 rounded-full bg-slate-800/80 flex items-center justify-center text-slate-300">
+                <Upload className="w-5 h-5" />
+              </div>
+              <p className="text-sm font-medium text-slate-200">
+                Drop supplier PDF, CSV, TXT, or quote photo here
+              </p>
+              <p className="text-xs text-slate-500">or click to browse from your computer</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <textarea
+          value={quote.text}
+          onChange={(e) => onChange({ ...quote, text: e.target.value })}
+          placeholder={`Paste raw line items, CSV rows, or email quote text for Quote ${side}...`}
+          className="w-full min-h-[180px] bg-slate-950/70 border border-slate-700/80 rounded-xl p-3 text-xs font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-slate-500 resize-y"
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// MAIN APPLICATION COMPONENT
+// ============================================================================
+export default function App() {
+  const [apiKey, setApiKey] = useState(() => {
+    try {
+      return localStorage.getItem('gemini_quote_comparator_key') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [modelName, setModelName] = useState('gemini-2.5-flash');
+
+  const [quoteA, setQuoteA] = useState({
+    supplierName: '',
+    mode: 'file',
+    file: null,
+    text: ''
+  });
+  const [quoteB, setQuoteB] = useState({
+    supplierName: '',
+    mode: 'file',
+    file: null,
+    text: ''
+  });
+
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+
+  // Interactive Split PO Override State: { [lineId]: "Quote A" | "Quote B" }
+  const [poAssignments, setPoAssignments] = useState({});
+  const [copiedSide, setCopiedSide] = useState(null);
+
+  // Table controls
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterMode, setFilterMode] = useState('ALL');
+  const [sortBy, setSortBy] = useState('DEFAULT');
+  const [expandedRows, setExpandedRows] = useState({});
+
+  useEffect(() => {
+    try {
+      if (apiKey) {
+        localStorage.setItem('gemini_quote_comparator_key', apiKey.trim());
+      } else {
+        localStorage.removeItem('gemini_quote_comparator_key');
+      }
+    } catch {
+      // Ignore storage access errors in sandboxed iframes
+    }
+  }, [apiKey]);
+
+  // Initialize optimal split PO assignments whenever a new comparison result loads
+  useEffect(() => {
+    if (!result?.lineItems) {
+      setPoAssignments({});
+      return;
+    }
+    const initial = {};
+    result.lineItems.forEach((item) => {
+      const aMissing = item.quoteA?.status === 'MISSING';
+      const bMissing = item.quoteB?.status === 'MISSING';
+      if (aMissing && !bMissing) {
+        initial[item.id] = 'Quote B';
+      } else if (bMissing && !aMissing) {
+        initial[item.id] = 'Quote A';
+      } else if (item.winner === 'Quote B') {
+        initial[item.id] = 'Quote B';
+      } else {
+        initial[item.id] = 'Quote A';
+      }
+    });
+    setPoAssignments(initial);
+  }, [result]);
+
+  const readFilePayload = (file) => {
+    return new Promise((resolve, reject) => {
+      const isText =
+        file.type.startsWith('text/') || /\.(csv|txt|tsv|json)$/i.test(file.name);
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+      if (isText) {
+        reader.onload = () =>
+          resolve({ kind: 'text', content: reader.result, fileName: file.name });
+        reader.readAsText(file);
+      } else {
+        reader.onload = () => {
+          const base64 = reader.result.split(',')[1];
+          resolve({
+            kind: 'inlineData',
+            mimeType: file.type || 'application/pdf',
+            data: base64,
+            fileName: file.name
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  };
+
+  const handleFileUpload = (side, file) => {
+    const setter = side === 'A' ? setQuoteA : setQuoteB;
+    setter((prev) => ({
+      ...prev,
+      mode: 'file',
+      file,
+      supplierName:
+        prev.supplierName || file.name.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ')
+    }));
+  };
+
+  const loadSampleData = () => {
+    setError('');
+    setQuoteA({
+      supplierName: 'World Electric Supply',
+      mode: 'text',
+      file: null,
+      text: SAMPLE_QUOTE_A
+    });
+    setQuoteB({
+      supplierName: 'City Electric Supply (CES)',
+      mode: 'text',
+      file: null,
+      text: SAMPLE_QUOTE_B
+    });
+    setResult(SAMPLE_ANALYSIS_RESULT);
+  };
+
+  const clearAll = () => {
+    setQuoteA({ supplierName: '', mode: 'file', file: null, text: '' });
+    setQuoteB({ supplierName: '', mode: 'file', file: null, text: '' });
+    setResult(null);
+    setPoAssignments({});
+    setError('');
+  };
+
+  const runComparison = async () => {
+    setError('');
+    const hasA =
+      (quoteA.mode === 'file' && quoteA.file) ||
+      (quoteA.mode === 'text' && quoteA.text.trim());
+    const hasB =
+      (quoteB.mode === 'file' && quoteB.file) ||
+      (quoteB.mode === 'text' && quoteB.text.trim());
+
+    if (!hasA || !hasB) {
+      setError(
+        'Please provide both Quote A and Quote B (upload a file or paste quote text for each).'
+      );
+      return;
+    }
+
+    setIsAnalyzing(true);
+    try {
+      const parts = [
+        {
+          text: `You are an expert Commercial Electrical & Construction Procurement Analyst. Compare Quote A and Quote B thoroughly, normalize Units of Measure (e.g. 10ft sticks vs per-foot, 250ft rolls vs per-foot, boxes/bags vs per-piece), match equivalent line items across different descriptions/part numbers, identify missing/no-bid items, freight/delivery fees, and payment terms, and calculate both an apples-to-apples normalized total and a Split-Award PO optimization.
+
+Return ONLY a valid JSON object matching this exact schema (no markdown fences):
+{
+  "overallWinner": "Quote A" | "Quote B" | "Tie",
+  "confidenceScore": number (0-100),
+  "executiveSummary": string,
+  "keyReasons": string[],
+  "riskFlags": string[],
+  "quoteASummary": {
+    "supplierName": string,
+    "statedSubtotal": number,
+    "freightAndFees": number,
+    "tax": number,
+    "statedTotal": number,
+    "normalizedApplesToApplesSubtotal": number,
+    "paymentTerms": string,
+    "leadTime": string
+  },
+  "quoteBSummary": {
+    "supplierName": string,
+    "statedSubtotal": number,
+    "freightAndFees": number,
+    "tax": number,
+    "statedTotal": number,
+    "normalizedApplesToApplesSubtotal": number,
+    "paymentTerms": string,
+    "leadTime": string
+  },
+  "splitAwardOptimization": {
+    "enabled": boolean,
+    "splitSubtotal": number,
+    "savingsVsQuoteA": number,
+    "savingsVsQuoteBNormalized": number,
+    "recommendationNote": string
+  },
+  "lineItems": [
+    {
+      "id": string,
+      "category": string,
+      "standardDescription": string,
+      "requiredQty": number,
+      "baseUnit": string,
+      "quoteA": {
+        "rawDesc": string,
+        "rawQty": number,
+        "rawUom": string,
+        "rawUnitPrice": number,
+        "normalizedUnitPrice": number,
+        "extendedPrice": number,
+        "status": "MATCHED" | "MISSING" | "QTY_DIFF"
+      },
+      "quoteB": {
+        "rawDesc": string,
+        "rawQty": number,
+        "rawUom": string,
+        "rawUnitPrice": number,
+        "normalizedUnitPrice": number,
+        "extendedPrice": number,
+        "status": "MATCHED" | "MISSING" | "QTY_DIFF"
+      },
+      "winner": "Quote A" | "Quote B" | "Tie" | "Incomplete",
+      "savingsAmount": number,
+      "notes": string
+    }
+  ]
+}`
+        }
+      ];
+
+      parts.push({
+        text: `\n--- QUOTE A (User Label: ${quoteA.supplierName || 'Supplier A'}) ---`
+      });
+      if (quoteA.mode === 'file' && quoteA.file) {
+        const payloadA = await readFilePayload(quoteA.file);
+        if (payloadA.kind === 'text') {
+          parts.push({ text: payloadA.content });
+        } else {
+          parts.push({
+            inlineData: { mimeType: payloadA.mimeType, data: payloadA.data }
+          });
+        }
+      } else {
+        parts.push({ text: quoteA.text });
+      }
+
+      parts.push({
+        text: `\n--- QUOTE B (User Label: ${quoteB.supplierName || 'Supplier B'}) ---`
+      });
+      if (quoteB.mode === 'file' && quoteB.file) {
+        const payloadB = await readFilePayload(quoteB.file);
+        if (payloadB.kind === 'text') {
+          parts.push({ text: payloadB.content });
+        } else {
+          parts.push({
+            inlineData: { mimeType: payloadB.mimeType, data: payloadB.data }
+          });
+        }
+      } else {
+        parts.push({ text: quoteB.text });
+      }
+
+      const trimmedKey = apiKey.trim();
+      const targetModel = trimmedKey ? modelName : 'gemini-3-flash-preview';
+      const endpointUrl = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent${
+        trimmedKey ? `?key=${encodeURIComponent(trimmedKey)}` : '?key='
+      }`;
+
+      const data = await fetchGeminiWithRetry(endpointUrl, {
+        contents: [{ parts }],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: 'application/json'
+        }
+      });
+
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) {
+        throw new Error(
+          'Empty response returned from Gemini API. Check your API key or quote format.'
+        );
+      }
+
+      const cleanJson = rawText
+        .replace(/^```json\s*/i, '')
+        .replace(/```\s*$/i, '')
+        .trim();
+      const parsed = JSON.parse(cleanJson);
+      setResult(parsed);
+    } catch (err) {
+      setError(
+        err.message ||
+          'Failed to analyze quotes. Ensure a valid Gemini API key is provided if running outside the preview environment.'
+      );
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Live Split-PO Breakdown computed from interactive assignments
+  const splitPoBreakdown = useMemo(() => {
+    if (!result?.lineItems) {
+      return {
+        poAItems: [],
+        poBItems: [],
+        poASubtotal: 0,
+        poBSubtotal: 0,
+        combinedSubtotal: 0,
+        netSavingsVsSingleBest: 0
+      };
+    }
+    const poAItems = [];
+    const poBItems = [];
+    let poASubtotal = 0;
+    let poBSubtotal = 0;
+
+    result.lineItems.forEach((item) => {
+      const assigned = poAssignments[item.id] || 'Quote A';
+      if (assigned === 'Quote A') {
+        const ext = item.quoteA?.extendedPrice || 0;
+        poAItems.push(item);
+        poASubtotal += ext;
+      } else {
+        const ext = item.quoteB?.extendedPrice || 0;
+        poBItems.push(item);
+        poBSubtotal += ext;
+      }
+    });
+
+    const combinedSubtotal = poASubtotal + poBSubtotal;
+    const bestSingleNormalized = Math.min(
+      result.quoteASummary?.normalizedApplesToApplesSubtotal || Infinity,
+      result.quoteBSummary?.normalizedApplesToApplesSubtotal || Infinity
+    );
+    const netSavingsVsSingleBest = isFinite(bestSingleNormalized)
+      ? bestSingleNormalized - combinedSubtotal
+      : 0;
+
+    return {
+      poAItems,
+      poBItems,
+      poASubtotal,
+      poBSubtotal,
+      combinedSubtotal,
+      netSavingsVsSingleBest
+    };
+  }, [result, poAssignments]);
+
+  const resetOptimalSplit = () => {
+    if (!result?.lineItems) return;
+    const optimal = {};
+    result.lineItems.forEach((item) => {
+      const aMissing = item.quoteA?.status === 'MISSING';
+      const bMissing = item.quoteB?.status === 'MISSING';
+      if (aMissing && !bMissing) optimal[item.id] = 'Quote B';
+      else if (bMissing && !aMissing) optimal[item.id] = 'Quote A';
+      else if (item.winner === 'Quote B') optimal[item.id] = 'Quote B';
+      else optimal[item.id] = 'Quote A';
+    });
+    setPoAssignments(optimal);
+  };
+
+  const togglePoAssignment = (lineId, targetSide) => {
+    setPoAssignments((prev) => ({ ...prev, [lineId]: targetSide }));
+  };
+
+  const copyPurchaseOrderText = (side) => {
+    if (!result) return;
+    const isA = side === 'A';
+    const supplier = isA
+      ? result.quoteASummary.supplierName
+      : result.quoteBSummary.supplierName;
+    const items = isA ? splitPoBreakdown.poAItems : splitPoBreakdown.poBItems;
+    const subtotal = isA ? splitPoBreakdown.poASubtotal : splitPoBreakdown.poBSubtotal;
+
+    const lines = [
+      `PURCHASE ORDER DRAFT — ${supplier.toUpperCase()}`,
+      `Buyer: Eddings Electrical Contracting`,
+      `Date: ${new Date().toLocaleDateString()}`,
+      `Payment Terms: ${
+        isA ? result.quoteASummary.paymentTerms : result.quoteBSummary.paymentTerms
+      }`,
+      `------------------------------------------------------------`,
+      ...items.map((item, idx) => {
+        const q = isA ? item.quoteA : item.quoteB;
+        return `${idx + 1}. [${q.rawQty} ${q.rawUom}] ${
+          q.rawDesc || item.standardDescription
+        } @ ${formatCurrency(q.rawUnitPrice)} = ${formatCurrency(q.extendedPrice)}`;
+      }),
+      `------------------------------------------------------------`,
+      `PO MATERIAL SUBTOTAL: ${formatCurrency(subtotal)}`
+    ];
+
+    navigator.clipboard.writeText(lines.join('\n'));
+    setCopiedSide(side);
+    setTimeout(() => setCopiedSide(null), 2000);
+  };
+
+  const exportSplitPoCSV = () => {
+    if (!result) return;
+    const headers = [
+      'Awarded PO',
+      'Supplier Name',
+      'Line ID',
+      'Category',
+      'Supplier Description',
+      'Order Qty',
+      'Order UOM',
+      'Quoted Unit Price ($)',
+      'Extended Line Total ($)',
+      'Normalized Unit Price ($)',
+      'Base UOM'
+    ];
+
+    const rows = [];
+    splitPoBreakdown.poAItems.forEach((item) => {
+      const q = item.quoteA;
+      rows.push([
+        'PO-1 (Quote A)',
+        `"${result.quoteASummary.supplierName.replace(/"/g, '""')}"`,
+        item.id,
+        item.category,
+        `"${(q.rawDesc || item.standardDescription).replace(/"/g, '""')}"`,
+        q.rawQty,
+        q.rawUom,
+        q.rawUnitPrice,
+        q.extendedPrice,
+        q.normalizedUnitPrice,
+        item.baseUnit
+      ]);
+    });
+    splitPoBreakdown.poBItems.forEach((item) => {
+      const q = item.quoteB;
+      rows.push([
+        'PO-2 (Quote B)',
+        `"${result.quoteBSummary.supplierName.replace(/"/g, '""')}"`,
+        item.id,
+        item.category,
+        `"${(q.rawDesc || item.standardDescription).replace(/"/g, '""')}"`,
+        q.rawQty,
+        q.rawUom,
+        q.rawUnitPrice,
+        q.extendedPrice,
+        q.normalizedUnitPrice,
+        item.baseUnit
+      ]);
+    });
+
+    const csvString = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Split_PO_Schedule_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const filteredLineItems = useMemo(() => {
+    if (!result?.lineItems) return [];
+    let items = [...result.lineItems];
+
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase();
+      items = items.filter(
+        (item) =>
+          item.standardDescription?.toLowerCase().includes(q) ||
+          item.category?.toLowerCase().includes(q) ||
+          item.quoteA?.rawDesc?.toLowerCase().includes(q) ||
+          item.quoteB?.rawDesc?.toLowerCase().includes(q) ||
+          item.notes?.toLowerCase().includes(q)
+      );
+    }
+
+    if (filterMode === 'WIN_A') items = items.filter((i) => i.winner === 'Quote A');
+    if (filterMode === 'WIN_B') items = items.filter((i) => i.winner === 'Quote B');
+    if (filterMode === 'ISSUES') {
+      items = items.filter(
+        (i) =>
+          i.quoteA?.status !== 'MATCHED' ||
+          i.quoteB?.status !== 'MATCHED' ||
+          i.winner === 'Incomplete'
+      );
+    }
+
+    if (sortBy === 'SAVINGS_DESC') {
+      items.sort((a, b) => (b.savingsAmount || 0) - (a.savingsAmount || 0));
+    } else if (sortBy === 'CATEGORY') {
+      items.sort((a, b) => (a.category || '').localeCompare(b.category || ''));
+    }
+
+    return items;
+  }, [result, searchTerm, filterMode, sortBy]);
+
+  const exportCSV = () => {
+    if (!result) return;
+    const headers = [
+      'Line ID',
+      'Category',
+      'Normalized Description',
+      'Req Qty',
+      'Base UOM',
+      `${result.quoteASummary.supplierName} Unit ($)`,
+      `${result.quoteASummary.supplierName} Ext ($)`,
+      `${result.quoteASummary.supplierName} Status`,
+      `${result.quoteBSummary.supplierName} Unit ($)`,
+      `${result.quoteBSummary.supplierName} Ext ($)`,
+      `${result.quoteBSummary.supplierName} Status`,
+      'Line Winner',
+      'Assigned Split PO',
+      'Line Savings ($)',
+      'Audit Notes'
+    ];
+
+    const rows = result.lineItems.map((item) => [
+      item.id,
+      item.category,
+      `"${(item.standardDescription || '').replace(/"/g, '""')}"`,
+      item.requiredQty,
+      item.baseUnit,
+      item.quoteA?.normalizedUnitPrice ?? 0,
+      item.quoteA?.extendedPrice ?? 0,
+      item.quoteA?.status ?? '',
+      item.quoteB?.normalizedUnitPrice ?? 0,
+      item.quoteB?.extendedPrice ?? 0,
+      item.quoteB?.status ?? '',
+      item.winner,
+      poAssignments[item.id] || item.winner,
+      item.savingsAmount ?? 0,
+      `"${(item.notes || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvString = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Quote_Comparison_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const toggleRow = (id) => {
+    setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 antialiased selection:bg-amber-500/30 selection:text-amber-200">
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: #fff !important; color: #000 !important; }
+        }
+      `}</style>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        {/* ===================================================================
+            HEADER & API KEY BAR
+           =================================================================== */}
+        <header className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+              <Zap className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl font-bold tracking-tight text-white">
+                  Material Quote Comparator
+                </h1>
+                <span className="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700">
+                  Eddings Electrical Contracting
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
+                AI line-item matching, UOM normalization, discrepancy audit &amp; interactive Split-PO builder
+              </p>
+            </div>
+          </div>
+
+          {/* API Key Input Controls */}
+          <div className="no-print flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 bg-slate-950/90 border border-slate-800 p-2.5 rounded-xl">
+            <div className="flex items-center gap-2 px-2 text-amber-400">
+              <Key className="w-4 h-4 shrink-0" />
+              <span className="text-xs font-semibold whitespace-nowrap">Gemini API Key:</span>
+            </div>
+            <div className="relative flex-1 sm:w-56">
+              <input
+                type={showApiKey ? 'text' : 'password'}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Optional in Canvas / AIzaSy..."
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-3 pr-9 py-1.5 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey(!showApiKey)}
+                title={showApiKey ? 'Hide API Key' : 'Show API Key'}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer"
+              >
+                {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+            <select
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+            >
+              <option value="gemini-2.5-flash">gemini-2.5-flash (Fast)</option>
+              <option value="gemini-2.5-pro">gemini-2.5-pro (Deep Audit)</option>
+            </select>
+            {apiKey ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 px-2 whitespace-nowrap">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Key saved
+              </span>
+            ) : (
+              <a
+                href="https://aistudio.google.com/apikey"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] text-amber-400 hover:text-amber-300 underline px-2 whitespace-nowrap"
+              >
+                Get free key
+              </a>
+            )}
+          </div>
+        </header>
+
+        {/* ===================================================================
+            1. DUAL QUOTE INGESTION CARDS
+           =================================================================== */}
+        <section className="no-print space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <QuoteInputCard
+              side="A"
+              label="Quote A"
+              quote={quoteA}
+              onChange={setQuoteA}
+              onFileUpload={(f) => handleFileUpload('A', f)}
+            />
+            <QuoteInputCard
+              side="B"
+              label="Quote B"
+              quote={quoteB}
+              onChange={setQuoteB}
+              onFileUpload={(f) => handleFileUpload('B', f)}
+            />
+          </div>
+
+          {error && (
+            <div className="bg-rose-950/60 border border-rose-500/40 text-rose-200 rounded-xl p-4 flex items-start gap-3 text-sm">
+              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-rose-300">Action Required</p>
+                <p className="text-xs sm:text-sm mt-0.5">{error}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Action Toolbar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/70 border border-slate-800 rounded-xl p-3.5">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <button
+                type="button"
+                onClick={loadSampleData}
+                className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+              >
+                Load Sample Commercial Electrical Quotes
+              </button>
+              {(quoteA.file || quoteA.text || quoteB.file || quoteB.text || result) && (
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  className="px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-300 transition cursor-pointer"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              disabled={isAnalyzing}
+              onClick={runComparison}
+              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 shadow-lg shadow-amber-500/20 transition cursor-pointer"
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Extracting &amp; Normalizing Quotes...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  Compare Quotes &amp; Find Winner
+                </>
+              )}
+            </button>
+          </div>
+        </section>
+
+        {/* ===================================================================
+            ANALYSIS RESULTS DASHBOARD
+           =================================================================== */}
+        {result && (
+          <main className="space-y-6">
+            {/* ---------------------------------------------------------------
+                3. EXECUTIVE VERDICT DASHBOARD
+               --------------------------------------------------------------- */}
+            <section className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800/90 border border-amber-500/30 rounded-2xl p-6 shadow-2xl space-y-5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                    <Trophy className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                        Recommended Single-Vendor Award
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        {result.overallWinner} (
+                        {result.overallWinner === 'Quote A'
+                          ? result.quoteASummary.supplierName
+                          : result.overallWinner === 'Quote B'
+                          ? result.quoteBSummary.supplierName
+                          : 'Split Award'}
+                        )
+                      </span>
+                    </div>
+                    <h2 className="text-lg sm:text-xl font-bold text-white mt-1">
+                      Why {result.overallWinner} Wins This Bid
+                    </h2>
+                  </div>
+                </div>
+
+                <div className="no-print flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={exportCSV}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Export Full Audit CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5" /> Print / PDF
+                  </button>
+                </div>
+              </div>
+
+              <p className="text-sm text-slate-200 leading-relaxed">{result.executiveSummary}</p>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Key Reasons */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4" /> Key Decision Drivers
+                  </h3>
+                  <ul className="space-y-2 text-xs sm:text-sm text-slate-300">
+                    {result.keyReasons?.map((reason, idx) => (
+                      <li key={idx} className="flex items-start gap-2">
+                        <span className="text-emerald-400 font-bold mt-0.5">•</span>
+                        <span>{reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Risk Flags */}
+                <div className="space-y-4">
+                  {result.riskFlags?.length > 0 && (
+                    <div className="bg-amber-950/30 border border-amber-500/30 rounded-xl p-4 space-y-2 h-full">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                        <AlertTriangle className="w-4 h-4" /> Scope &amp; Commercial Risk Flags
+                      </h3>
+                      <ul className="space-y-1.5 text-xs sm:text-sm text-amber-100/90">
+                        {result.riskFlags.map((flag, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className="text-amber-400 font-bold">!</span>
+                            <span>{flag}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {/* Financial KPI Summary Cards */}
+            <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Quote A Card */}
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                    Quote A • {result.quoteASummary.supplierName}
+                  </span>
+                  {result.overallWinner === 'Quote A' && (
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                      WINNER
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <div>
+                    <p className="text-xs text-slate-400">Apples-to-Apples Normalized</p>
+                    <p className="text-2xl font-bold text-white">
+                      {formatCurrency(result.quoteASummary.normalizedApplesToApplesSubtotal)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-slate-500">Stated Grand Total</p>
+                    <p className="text-sm font-semibold text-slate-300">
+                      {formatCurrency(result.quoteASummary.statedTotal)}
+                    </p>
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-slate-800 grid grid-cols-2 gap-2 text-xs text-slate-400">
+                  <div>
+                    Freight:{' '}
+                    <span className="text-slate-200">
+                      {formatCurrency(result.quoteASummary.freightAndFees)}
+                    </span>
+                  </div>
+                  <div>
+                    Terms:{' '}
+                    <span className="text-slate-200">{result.quoteASummary.paymentTerms}</span>
+                  </div>
+                  <div className="col-span-2">
+                    Lead Time:{' '}
+                    <span className="text-slate-200">{result.quoteASummary.leadTime}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quote B Card */}
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-sky-400">
+                    Quote B • {result.quoteBSummary.supplierName}
+                  </span>
+                  {result.overallWinner === 'Quote B' && (
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                      WINNER
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <div>
+                    <p className="text-xs text-slate-400">Apples-to-Apples Normalized</p>
+                    <p className="text-2xl font-bold text-white">
+                      {formatCurrency(result.quoteBSummary.normalizedApplesToApplesSubtotal)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-slate-500">Stated Grand Total</p>
+                    <p className="text-sm font-semibold text-slate-300">
+                      {formatCurrency(result.quoteBSummary.statedTotal)}
+                    </p>
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-slate-800 grid grid-cols-2 gap-2 text-xs text-slate-400">
+                  <div>
+                    Freight:{' '}
+                    <span className="text-slate-200">
+                      {formatCurrency(result.quoteBSummary.freightAndFees)}
+                    </span>
+                  </div>
+                  <div>
+                    Terms:{' '}
+                    <span className="text-slate-200">{result.quoteBSummary.paymentTerms}</span>
+                  </div>
+                  <div className="col-span-2">
+                    Lead Time:{' '}
+                    <span className="text-slate-200">{result.quoteBSummary.leadTime}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Split PO Card */}
+              <div className="bg-slate-900 border border-emerald-500/30 rounded-xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                    Live Split-PO Combined
+                  </span>
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300">
+                    {splitPoBreakdown.poAItems.length} / {splitPoBreakdown.poBItems.length} Split
+                  </span>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Combined Material Subtotal</p>
+                  <p className="text-2xl font-bold text-emerald-400">
+                    {formatCurrency(splitPoBreakdown.combinedSubtotal)}
+                  </p>
+                </div>
+                <div className="pt-2 border-t border-slate-800 text-xs text-slate-400 space-y-1">
+                  <div>
+                    Savings vs Quote A:{' '}
+                    <span className="text-emerald-300 font-semibold">
+                      {formatCurrency(
+                        result.quoteASummary.normalizedApplesToApplesSubtotal -
+                          splitPoBreakdown.combinedSubtotal
+                      )}
+                    </span>
+                  </div>
+                  <div>
+                    Savings vs Normalized Quote B:{' '}
+                    <span className="text-emerald-300 font-semibold">
+                      {formatCurrency(
+                        result.quoteBSummary.normalizedApplesToApplesSubtotal -
+                          splitPoBreakdown.combinedSubtotal
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* ---------------------------------------------------------------
+                4. INTERACTIVE SPLIT PURCHASE ORDER (PO) SCHEDULE SECTION
+               --------------------------------------------------------------- */}
+            <section className="bg-slate-900 border border-sky-500/30 rounded-2xl p-6 shadow-xl space-y-5">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0">
+                    <Scissors className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-lg font-bold text-white">
+                        Split Purchase Order (PO) Schedule
+                      </h2>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        Net Savings: {formatCurrency(splitPoBreakdown.netSavingsVsSingleBest)} vs Best Single Bid
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Cherry-picked line assignments in supplier native order units (sticks, rolls, boxes). Reassign any line below to adjust PO minimums or freight thresholds.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="no-print flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={resetOptimalSplit}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Reset to Lowest-Price Split
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportSplitPoCSV}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold bg-sky-500 hover:bg-sky-400 text-slate-950 transition cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Export Split POs (CSV)
+                  </button>
+                </div>
+              </div>
+
+              {result.splitAwardOptimization?.recommendationNote && (
+                <div className="bg-sky-950/35 border border-sky-500/25 rounded-xl p-3.5 text-xs sm:text-sm text-sky-100/90 leading-relaxed">
+                  <span className="font-bold text-sky-300 uppercase tracking-wider text-xs mr-2">
+                    Procurement Strategy:
+                  </span>
+                  {result.splitAwardOptimization.recommendationNote}
+                </div>
+              )}
+
+              {/* Side-by-Side Supplier Purchase Order Cards */}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                {/* PO #1 — Quote A Supplier */}
+                <div className="bg-slate-950/80 border border-amber-500/30 rounded-xl overflow-hidden flex flex-col">
+                  <div className="p-4 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
+                        Purchase Order #1 • {splitPoBreakdown.poAItems.length} Line Items
+                      </span>
+                      <h3 className="text-base font-bold text-white">
+                        {result.quoteASummary.supplierName}
+                      </h3>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-[11px] text-slate-400">PO #1 Subtotal</p>
+                        <p className="text-lg font-bold text-amber-300 font-mono">
+                          {formatCurrency(splitPoBreakdown.poASubtotal)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => copyPurchaseOrderText('A')}
+                        className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 transition cursor-pointer"
+                      >
+                        {copiedSide === 'A' ? (
+                          <Check className="w-3.5 h-3.5" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                        {copiedSide === 'A' ? 'Copied PO!' : 'Copy PO Text'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto flex-1">
+                    {splitPoBreakdown.poAItems.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-500">
+                        No line items currently assigned to {result.quoteASummary.supplierName}.
+                      </div>
+                    ) : (
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900/60">
+                            <th className="py-2.5 px-3">Order Qty</th>
+                            <th className="py-2.5 px-3">Supplier Item Description</th>
+                            <th className="py-2.5 px-3 text-right">Unit</th>
+                            <th className="py-2.5 px-3 text-right">Ext Total</th>
+                            <th className="py-2.5 px-3 text-right no-print">Move</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/70">
+                          {splitPoBreakdown.poAItems.map((item) => {
+                            const q = item.quoteA;
+                            const canMoveToB =
+                              item.quoteB && item.quoteB.status !== 'MISSING';
+                            return (
+                              <tr key={item.id} className="hover:bg-slate-900/50">
+                                <td className="py-2.5 px-3 font-mono font-semibold text-amber-200 whitespace-nowrap">
+                                  {q.rawQty} {q.rawUom}
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-200">
+                                  {q.rawDesc || item.standardDescription}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono text-slate-300 whitespace-nowrap">
+                                  {formatCurrency(q.rawUnitPrice)}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono font-bold text-white whitespace-nowrap">
+                                  {formatCurrency(q.extendedPrice)}
+                                </td>
+                                <td className="py-2.5 px-3 text-right whitespace-nowrap no-print">
+                                  {canMoveToB ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => togglePoAssignment(item.id, 'Quote B')}
+                                      title="Move this item to PO #2"
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-slate-800 hover:bg-sky-500/20 text-slate-300 hover:text-sky-300 border border-slate-700 transition cursor-pointer"
+                                    >
+                                      <ArrowRight className="w-3 h-3" /> PO #2
+                                    </button>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-600 italic">
+                                      Only Bid
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+
+                {/* PO #2 — Quote B Supplier */}
+                <div className="bg-slate-950/80 border border-sky-500/30 rounded-xl overflow-hidden flex flex-col">
+                  <div className="p-4 bg-sky-500/10 border-b border-sky-500/20 flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-sky-400">
+                        Purchase Order #2 • {splitPoBreakdown.poBItems.length} Line Items
+                      </span>
+                      <h3 className="text-base font-bold text-white">
+                        {result.quoteBSummary.supplierName}
+                      </h3>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-[11px] text-slate-400">PO #2 Subtotal</p>
+                        <p className="text-lg font-bold text-sky-300 font-mono">
+                          {formatCurrency(splitPoBreakdown.poBSubtotal)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => copyPurchaseOrderText('B')}
+                        className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-sky-300 border border-sky-500/30 transition cursor-pointer"
+                      >
+                        {copiedSide === 'B' ? (
+                          <Check className="w-3.5 h-3.5" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                        {copiedSide === 'B' ? 'Copied PO!' : 'Copy PO Text'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto flex-1">
+                    {splitPoBreakdown.poBItems.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-500">
+                        No line items currently assigned to {result.quoteBSummary.supplierName}.
+                      </div>
+                    ) : (
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900/60">
+                            <th className="py-2.5 px-3">Order Qty</th>
+                            <th className="py-2.5 px-3">Supplier Item Description</th>
+                            <th className="py-2.5 px-3 text-right">Unit</th>
+                            <th className="py-2.5 px-3 text-right">Ext Total</th>
+                            <th className="py-2.5 px-3 text-right no-print">Move</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/70">
+                          {splitPoBreakdown.poBItems.map((item) => {
+                            const q = item.quoteB;
+                            const canMoveToA =
+                              item.quoteA && item.quoteA.status !== 'MISSING';
+                            return (
+                              <tr key={item.id} className="hover:bg-slate-900/50">
+                                <td className="py-2.5 px-3 font-mono font-semibold text-sky-200 whitespace-nowrap">
+                                  {q.rawQty} {q.rawUom}
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-200">
+                                  {q.rawDesc || item.standardDescription}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono text-slate-300 whitespace-nowrap">
+                                  {formatCurrency(q.rawUnitPrice)}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono font-bold text-white whitespace-nowrap">
+                                  {formatCurrency(q.extendedPrice)}
+                                </td>
+                                <td className="py-2.5 px-3 text-right whitespace-nowrap no-print">
+                                  {canMoveToA ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => togglePoAssignment(item.id, 'Quote A')}
+                                      title="Move this item to PO #1"
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-slate-800 hover:bg-amber-500/20 text-slate-300 hover:text-amber-300 border border-slate-700 transition cursor-pointer"
+                                    >
+                                      <ArrowLeft className="w-3 h-3" /> PO #1
+                                    </button>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-600 italic">
+                                      Only Bid
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* ---------------------------------------------------------------
+                5. EXPANDABLE LINE-BY-LINE NORMALIZED COMPARISON AUDIT TABLE
+               --------------------------------------------------------------- */}
+            <section className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="p-4 sm:p-5 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    Line-by-Line Normalized Comparison
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Click any row to inspect raw supplier descriptions, UOM conversions, and audit notes
+                  </p>
+                </div>
+
+                <div className="no-print flex flex-wrap items-center gap-2">
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500">
+                      <Search className="w-3.5 h-3.5" />
+                    </span>
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      placeholder="Filter material or notes..."
+                      className="bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500 w-48"
+                    />
+                  </div>
+
+                  <select
+                    value={filterMode}
+                    onChange={(e) => setFilterMode(e.target.value)}
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
+                  >
+                    <option value="ALL">All Lines ({result.lineItems.length})</option>
+                    <option value="WIN_A">Quote A Wins</option>
+                    <option value="WIN_B">Quote B Wins</option>
+                    <option value="ISSUES">Missing / Discrepancies</option>
+                  </select>
+
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
+                  >
+                    <option value="DEFAULT">Original Order</option>
+                    <option value="SAVINGS_DESC">Highest Line Savings</option>
+                    <option value="CATEGORY">Group by Category</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-950/80 border-b border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      <th className="py-3 px-4">Material &amp; Normalized Spec</th>
+                      <th className="py-3 px-3 text-right">Qty / UOM</th>
+                      <th className="py-3 px-3 text-right text-amber-400">Quote A Unit</th>
+                      <th className="py-3 px-3 text-right text-amber-400">Quote A Ext</th>
+                      <th className="py-3 px-3 text-right text-sky-400">Quote B Unit</th>
+                      <th className="py-3 px-3 text-right text-sky-400">Quote B Ext</th>
+                      <th className="py-3 px-3 text-center">Winner</th>
+                      <th className="py-3 px-4 text-right">Savings</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80 text-xs sm:text-sm">
+                    {filteredLineItems.map((item) => {
+                      const isExpanded = !!expandedRows[item.id];
+                      const isMissing =
+                        item.quoteA?.status === 'MISSING' ||
+                        item.quoteB?.status === 'MISSING';
+
+                      return (
+                        <React.Fragment key={item.id}>
+                          <tr
+                            onClick={() => toggleRow(item.id)}
+                            className={`cursor-pointer transition hover:bg-slate-800/40 ${
+                              isMissing ? 'bg-rose-950/20' : ''
+                            }`}
+                          >
+                            <td className="py-3 px-4">
+                              <div className="flex items-start gap-2">
+                                <span className="text-slate-500 mt-1 shrink-0">
+                                  {isExpanded ? (
+                                    <ChevronUp className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <ChevronDown className="w-3.5 h-3.5" />
+                                  )}
+                                </span>
+                                <div>
+                                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 mr-2">
+                                    {item.category}
+                                  </span>
+                                  <span className="font-semibold text-slate-100">
+                                    {item.standardDescription}
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono text-xs text-slate-300 whitespace-nowrap">
+                              {item.requiredQty} {item.baseUnit}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono text-xs text-slate-300 whitespace-nowrap">
+                              {item.quoteA?.status === 'MISSING' ? (
+                                <span className="text-rose-400 font-bold">NO BID</span>
+                              ) : (
+                                `${formatUnitCurrency(item.quoteA?.normalizedUnitPrice)}/${
+                                  item.baseUnit
+                                }`
+                              )}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-slate-200 whitespace-nowrap">
+                              {item.quoteA?.status === 'MISSING'
+                                ? '—'
+                                : formatCurrency(item.quoteA?.extendedPrice)}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono text-xs text-slate-300 whitespace-nowrap">
+                              {item.quoteB?.status === 'MISSING' ? (
+                                <span className="text-rose-400 font-bold">NO BID</span>
+                              ) : (
+                                `${formatUnitCurrency(item.quoteB?.normalizedUnitPrice)}/${
+                                  item.baseUnit
+                                }`
+                              )}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-slate-200 whitespace-nowrap">
+                              {item.quoteB?.status === 'MISSING'
+                                ? '—'
+                                : formatCurrency(item.quoteB?.extendedPrice)}
+                            </td>
+                            <td className="py-3 px-3 text-center whitespace-nowrap">
+                              {item.winner === 'Quote A' && (
+                                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  Quote A
+                                </span>
+                              )}
+                              {item.winner === 'Quote B' && (
+                                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                                  Quote B
+                                </span>
+                              )}
+                              {item.winner === 'Tie' && (
+                                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-300">
+                                  Tie
+                                </span>
+                              )}
+                              {item.winner === 'Incomplete' && (
+                                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/20 text-rose-300">
+                                  Incomplete
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono text-xs font-bold text-emerald-400 whitespace-nowrap">
+                              {item.savingsAmount > 0
+                                ? formatCurrency(item.savingsAmount)
+                                : '—'}
+                            </td>
+                          </tr>
+
+                          {isExpanded && (
+                            <tr className="bg-slate-950/70">
+                              <td
+                                colSpan={8}
+                                className="px-6 py-4 text-xs space-y-2 border-t border-slate-800/50"
+                              >
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-3">
+                                    <p className="text-[11px] font-bold text-amber-400 uppercase">
+                                      Quote A Raw Line
+                                    </p>
+                                    <p className="font-mono text-slate-200 mt-1">
+                                      {item.quoteA?.rawDesc || 'N/A'}
+                                    </p>
+                                    <p className="text-slate-400 mt-1">
+                                      Quoted: {item.quoteA?.rawQty} {item.quoteA?.rawUom} @{' '}
+                                      {formatCurrency(item.quoteA?.rawUnitPrice)}
+                                    </p>
+                                  </div>
+                                  <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-3">
+                                    <p className="text-[11px] font-bold text-sky-400 uppercase">
+                                      Quote B Raw Line
+                                    </p>
+                                    <p className="font-mono text-slate-200 mt-1">
+                                      {item.quoteB?.rawDesc || 'N/A'}
+                                    </p>
+                                    <p className="text-slate-400 mt-1">
+                                      Quoted: {item.quoteB?.rawQty} {item.quoteB?.rawUom} @{' '}
+                                      {formatCurrency(item.quoteB?.rawUnitPrice)}
+                                    </p>
+                                  </div>
+                                </div>
+                                {item.notes && (
+                                  <p className="text-slate-300 bg-slate-900/60 border border-slate-800/80 rounded-lg px-3 py-2">
+                                    <span className="font-semibold text-amber-300">
+                                      Audit Note:
+                                    </span>{' '}
+                                    {item.notes}
+                                  </p>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </main>
+        )}
+      </div>
+    </div>
+  );
+}
